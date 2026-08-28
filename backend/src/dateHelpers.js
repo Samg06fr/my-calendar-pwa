@@ -33,11 +33,11 @@ export function occursOn(event, dateKey) {
   const target = fromKey(dateKey);
   const base = fromKey(event.date);
   if (target < base) return false;
-  const recurType = event.recurrence_type || "none";
+  const recurType = event.recurrence?.type || "none";
   if (recurType === "none") {
     return event.date === dateKey;
   }
-  if (event.recurrence_end_date && dateKey > event.recurrence_end_date) return false;
+  if (event.recurrence?.endDate && dateKey > event.recurrence.endDate) return false;
   switch (recurType) {
     case "daily":
       return true;

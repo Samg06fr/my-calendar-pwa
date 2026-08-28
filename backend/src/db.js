@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 
@@ -9,8 +10,15 @@ export const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS accounts (
+    id TEXT PRIMARY KEY,
+    code TEXT UNIQUE NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS devices (
     device_id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL,
     tz_offset_minutes INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL
   );
@@ -23,18 +31,16 @@ db.exec(`
     created_at TEXT NOT NULL
   );
 
-  CREATE TABLE IF NOT EXISTS events (
-    device_id TEXT NOT NULL,
-    id TEXT NOT NULL,
-    title TEXT NOT NULL,
-    date TEXT NOT NULL,
-    start_time TEXT NOT NULL,
-    end_time TEXT NOT NULL,
-    notes TEXT,
-    reminder TEXT,
-    recurrence_type TEXT NOT NULL DEFAULT 'none',
-    recurrence_end_date TEXT,
-    PRIMARY KEY (device_id, id)
+  -- One row per account holding the full events/colors arrays as JSON.
+  -- Kept as opaque blobs (rather than a normalized events table) because
+  -- the frontend and scheduler both only ever need the whole array at once,
+  -- and this guarantees the synced shape matches the client's IndexedDB
+  -- model exactly with no lossy column mapping.
+  CREATE TABLE IF NOT EXISTS account_data (
+    account_id TEXT PRIMARY KEY,
+    events_json TEXT NOT NULL DEFAULT '[]',
+    colors_json TEXT NOT NULL DEFAULT '[]',
+    updated_at TEXT NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS fired_reminders (
@@ -46,12 +52,41 @@ db.exec(`
   );
 `);
 
-export function upsertDevice(deviceId, tzOffsetMinutes) {
+const CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O/1/I/L — avoids visual ambiguity
+
+function generateCode() {
+  let code = "";
+  for (let i = 0; i < 6; i++) {
+    code += CODE_CHARS[crypto.randomInt(CODE_CHARS.length)];
+  }
+  return code;
+}
+
+export function createAccount() {
+  const id = crypto.randomUUID();
+  let code;
+  // Extremely unlikely to collide at 32^6 combinations, but guard anyway.
+  do {
+    code = generateCode();
+  } while (getAccountByCode(code));
+  db.prepare(`INSERT INTO accounts (id, code, created_at) VALUES (?, ?, datetime('now'))`).run(id, code);
+  return { id, code };
+}
+
+export function getAccountByCode(code) {
+  return db.prepare(`SELECT * FROM accounts WHERE code = ?`).get((code || "").toUpperCase().trim());
+}
+
+export function accountExists(accountId) {
+  return !!db.prepare(`SELECT 1 FROM accounts WHERE id = ?`).get(accountId);
+}
+
+export function upsertDevice(deviceId, accountId, tzOffsetMinutes) {
   db.prepare(
-    `INSERT INTO devices (device_id, tz_offset_minutes, updated_at)
-     VALUES (?, ?, datetime('now'))
-     ON CONFLICT(device_id) DO UPDATE SET tz_offset_minutes = excluded.tz_offset_minutes, updated_at = excluded.updated_at`
-  ).run(deviceId, tzOffsetMinutes ?? 0);
+    `INSERT INTO devices (device_id, account_id, tz_offset_minutes, updated_at)
+     VALUES (?, ?, ?, datetime('now'))
+     ON CONFLICT(device_id) DO UPDATE SET account_id = excluded.account_id, tz_offset_minutes = excluded.tz_offset_minutes, updated_at = excluded.updated_at`
+  ).run(deviceId, accountId, tzOffsetMinutes ?? 0);
 }
 
 export function upsertSubscription(deviceId, subscription) {
@@ -66,43 +101,27 @@ export function removeSubscription(deviceId) {
   db.prepare(`DELETE FROM subscriptions WHERE device_id = ?`).run(deviceId);
 }
 
-export function replaceEventsForDevice(deviceId, events) {
-  const del = db.prepare(`DELETE FROM events WHERE device_id = ?`);
-  const insert = db.prepare(`
-    INSERT INTO events (device_id, id, title, date, start_time, end_time, notes, reminder, recurrence_type, recurrence_end_date)
-    VALUES (@deviceId, @id, @title, @date, @startTime, @endTime, @notes, @reminder, @recurrenceType, @recurrenceEndDate)
-  `);
-  const tx = db.transaction((rows) => {
-    del.run(deviceId);
-    for (const ev of rows) {
-      insert.run({
-        deviceId,
-        id: ev.id,
-        title: ev.title || "",
-        date: ev.date,
-        startTime: ev.startTime,
-        endTime: ev.endTime,
-        notes: ev.notes || "",
-        reminder: ev.reminder || "none",
-        recurrenceType: ev.recurrence?.type || "none",
-        recurrenceEndDate: ev.recurrence?.endDate || null,
-      });
-    }
-  });
-  tx(events);
+export function upsertAccountData(accountId, events, colors) {
+  db.prepare(
+    `INSERT INTO account_data (account_id, events_json, colors_json, updated_at)
+     VALUES (?, ?, ?, datetime('now'))
+     ON CONFLICT(account_id) DO UPDATE SET events_json = excluded.events_json, colors_json = excluded.colors_json, updated_at = excluded.updated_at`
+  ).run(accountId, JSON.stringify(events || []), JSON.stringify(colors || []));
+}
+
+export function getAccountData(accountId) {
+  const row = db.prepare(`SELECT events_json, colors_json FROM account_data WHERE account_id = ?`).get(accountId);
+  if (!row) return { events: [], colors: [] };
+  return { events: JSON.parse(row.events_json), colors: JSON.parse(row.colors_json) };
 }
 
 export function getAllDevicesWithSubscriptions() {
   return db.prepare(`
-    SELECT d.device_id AS deviceId, d.tz_offset_minutes AS tzOffsetMinutes,
+    SELECT d.device_id AS deviceId, d.account_id AS accountId, d.tz_offset_minutes AS tzOffsetMinutes,
            s.endpoint, s.p256dh, s.auth
     FROM devices d
     JOIN subscriptions s ON s.device_id = d.device_id
   `).all();
-}
-
-export function getEventsForDevice(deviceId) {
-  return db.prepare(`SELECT * FROM events WHERE device_id = ?`).all(deviceId);
 }
 
 export function hasFired(deviceId, eventId, dateKey) {

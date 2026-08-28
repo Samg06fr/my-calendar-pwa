@@ -13,15 +13,15 @@ export async function isPushSupported() {
   return "serviceWorker" in navigator && "PushManager" in window;
 }
 
-export async function subscribeToPush(deviceId) {
+export async function subscribeToPush(deviceId, accountId) {
   if (!(await isPushSupported())) return null;
-  if (!API_BASE) return null;
+  if (!API_BASE || !accountId) return null;
 
   const registration = await navigator.serviceWorker.ready;
 
   const existing = await registration.pushManager.getSubscription();
   if (existing) {
-    await sendSubscription(existing, deviceId);
+    await sendSubscription(existing, deviceId, accountId);
     return existing;
   }
 
@@ -34,31 +34,23 @@ export async function subscribeToPush(deviceId) {
     applicationServerKey: urlBase64ToUint8Array(publicKey),
   });
 
-  await sendSubscription(subscription, deviceId);
+  await sendSubscription(subscription, deviceId, accountId);
   return subscription;
 }
 
-async function sendSubscription(subscription, deviceId) {
+async function sendSubscription(subscription, deviceId, accountId) {
   try {
     await fetch(`${API_BASE}/api/subscribe`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ subscription, deviceId }),
+      body: JSON.stringify({
+        subscription,
+        deviceId,
+        accountId,
+        tzOffsetMinutes: new Date().getTimezoneOffset(),
+      }),
     });
   } catch (e) {
     /* offline / backend unreachable — subscription stays local, will retry next load */
-  }
-}
-
-export async function syncEventsToBackend(deviceId, events) {
-  if (!API_BASE) return;
-  try {
-    await fetch(`${API_BASE}/api/events`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ deviceId, events }),
-    });
-  } catch (e) {
-    /* offline / backend unreachable — reminders will sync on next successful save */
   }
 }

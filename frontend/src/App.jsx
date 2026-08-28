@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Plus, X, Pencil, ChevronLeft, ChevronRight, Clock, FileText, Paperclip, Bell, Repeat, Trash2, Check } from "lucide-react";
+import { Plus, X, Pencil, ChevronLeft, ChevronRight, Clock, FileText, Paperclip, Bell, Repeat, Trash2, Check, Smartphone, Copy } from "lucide-react";
 import { loadKey, saveKey } from "./db";
-import { subscribeToPush, syncEventsToBackend } from "./push";
+import { subscribeToPush } from "./push";
+import { ensureAccount, joinAccountByCode, pullAccountData, pushAccountData } from "./sync";
 
 /* ---------------------------------------------------------
    TOKENS
@@ -542,10 +543,11 @@ function EventForm({ initial, colors, onSave, onDelete, onCancel }) {
   return (
     <div style={{
       position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 50,
-      display: "flex", alignItems: "flex-end", justifyContent: "center",
+      overflowY: "auto", WebkitOverflowScrolling: "touch",
     }}>
+      <div style={{ minHeight: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
       <div style={{
-        background: T.surface, width: "100%", maxWidth: 480, maxHeight: "92vh", overflowY: "auto",
+        background: T.surface, width: "100%", maxWidth: 480,
         borderRadius: "18px 18px 0 0", padding: "18px 18px 28px", border: `1px solid ${T.border}`, borderBottom: "none",
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
@@ -704,6 +706,7 @@ function EventForm({ initial, colors, onSave, onDelete, onCancel }) {
           </button>
         </div>
       </div>
+      </div>
     </div>
   );
 }
@@ -715,8 +718,9 @@ function EventDetail({ event, color, onEdit, onClose }) {
   return (
     <div
       onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 50, display: "flex", alignItems: "flex-end", justifyContent: "center" }}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 50, overflowY: "auto", WebkitOverflowScrolling: "touch" }}
     >
+      <div style={{ minHeight: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
       <div
         onClick={(e) => e.stopPropagation()}
         style={{ background: T.surface, width: "100%", maxWidth: 480, borderRadius: "18px 18px 0 0", padding: 20, border: `1px solid ${T.border}`, borderBottom: "none" }}
@@ -768,6 +772,105 @@ function EventDetail({ event, color, onEdit, onClose }) {
           <Pencil size={14} /> Edit event
         </button>
       </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------
+   SYNC SHEET (view this device's code / link to another calendar)
+--------------------------------------------------------- */
+function SyncSheet({ code, onJoin, onClose }) {
+  const [joinCode, setJoinCode] = useState("");
+  const [status, setStatus] = useState(null); // null | "joining" | "error" | "copied"
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setStatus("copied");
+      setTimeout(() => setStatus(null), 1500);
+    } catch (e) { /* clipboard unavailable — code is still shown on screen */ }
+  };
+
+  const handleJoin = async () => {
+    if (!joinCode.trim()) return;
+    setStatus("joining");
+    try {
+      await onJoin(joinCode.trim());
+    } catch (e) {
+      setStatus("error");
+    }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 50, overflowY: "auto", WebkitOverflowScrolling: "touch" }}
+    >
+      <div style={{ minHeight: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: T.surface, width: "100%", maxWidth: 480, borderRadius: "18px 18px 0 0", padding: 20, border: `1px solid ${T.border}`, borderBottom: "none" }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <span style={{ color: T.text, fontSize: 17, fontWeight: 700, fontFamily: "Georgia, serif" }}>Sync devices</span>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer" }}>
+            <X size={20} color={T.textMuted} />
+          </button>
+        </div>
+
+        <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 8 }}>
+          This device's sync code — enter it on another device to share this calendar:
+        </div>
+        <div
+          onClick={handleCopy}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, cursor: "pointer",
+            background: T.surfaceRaised, border: `1px solid ${T.border}`, borderRadius: 10, padding: "12px 14px", marginBottom: 8,
+          }}
+        >
+          <span style={{ color: T.accent, fontSize: 22, fontWeight: 700, letterSpacing: 3, fontFamily: "Georgia, serif" }}>{code}</span>
+          <Copy size={16} color={T.textFaint} />
+        </div>
+        {status === "copied" && <div style={{ fontSize: 11.5, color: T.accent, marginBottom: 10 }}>Copied to clipboard</div>}
+
+        <div style={{ height: 1, background: T.borderSoft, margin: "18px 0" }} />
+
+        <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 8 }}>
+          Have a code from another device? Enter it here to link this one to that calendar:
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            value={joinCode}
+            onChange={(e) => { setJoinCode(e.target.value.toUpperCase()); setStatus(null); }}
+            placeholder="ABC123"
+            maxLength={6}
+            style={{
+              flex: 1, background: T.surfaceRaised, border: `1px solid ${T.border}`, borderRadius: 8,
+              padding: "10px 12px", color: T.text, fontSize: 16, letterSpacing: 2, boxSizing: "border-box",
+            }}
+          />
+          <button
+            onClick={handleJoin}
+            disabled={!joinCode.trim() || status === "joining"}
+            style={{
+              background: T.accent, color: "#241C10", border: "none", borderRadius: 8,
+              padding: "0 16px", fontSize: 14, fontWeight: 700, cursor: "pointer",
+            }}
+          >
+            Link
+          </button>
+        </div>
+        {status === "error" && (
+          <div style={{ fontSize: 11.5, color: T.danger, marginTop: 8 }}>
+            Couldn't find a calendar with that code. Double-check it and try again.
+          </div>
+        )}
+        <div style={{ fontSize: 11, color: T.textFaint, marginTop: 12 }}>
+          Linking replaces this device's events with the other calendar's.
+        </div>
+      </div>
+      </div>
     </div>
   );
 }
@@ -786,9 +889,13 @@ export default function CalendarApp() {
   const [detailEvent, setDetailEvent] = useState(null);
   const [firedReminders, setFiredReminders] = useState({});
   const [notifPermission, setNotifPermission] = useState(typeof Notification !== "undefined" ? Notification.permission : "unsupported");
+  const [account, setAccount] = useState(null); // { accountId, code }
+  const [showSyncSheet, setShowSyncSheet] = useState(false);
   const deviceIdRef = useRef(typeof window !== "undefined" ? getDeviceId() : null);
+  const skipNextPushRef = useRef(false); // true right after we've just written data *from* a pull
 
-  // Load persisted state
+  // Load persisted local state, then link/create a sync account and
+  // reconcile with whatever's on the backend (see reconcileWithBackend).
   useEffect(() => {
     (async () => {
       const [ev, cl] = await Promise.all([
@@ -798,6 +905,23 @@ export default function CalendarApp() {
       setEvents(ev);
       setColors(cl && cl.length ? cl : PRESET_COLORS);
       setLoaded(true);
+
+      const acct = await ensureAccount();
+      if (!acct) return; // offline or no backend configured — stays local-only for now
+      setAccount(acct);
+
+      const remote = await pullAccountData(acct.accountId);
+      if (remote && (remote.events.length > 0 || remote.colors.length > 0)) {
+        // Backend already has data for this account (e.g. synced from
+        // another device, or a previous session) — it wins.
+        skipNextPushRef.current = true;
+        setEvents(remote.events);
+        setColors(remote.colors.length ? remote.colors : PRESET_COLORS);
+      } else if (ev.length > 0 || cl.length > 0) {
+        // Fresh account but this device already has local events — seed
+        // the backend with what's here.
+        pushAccountData(acct.accountId, deviceIdRef.current, ev, cl.length ? cl : PRESET_COLORS);
+      }
     })();
   }, []);
 
@@ -808,19 +932,51 @@ export default function CalendarApp() {
   // (e.g. re-opening the installed PWA) — re-subscribe silently so the
   // backend has a fresh subscription + the deviceId is registered.
   useEffect(() => {
-    if (loaded && notifPermission === "granted") {
-      subscribeToPush(deviceIdRef.current);
+    if (loaded && notifPermission === "granted" && account) {
+      subscribeToPush(deviceIdRef.current, account.accountId);
     }
-  }, [loaded, notifPermission]);
+  }, [loaded, notifPermission, account]);
 
-  // Keep the backend's copy of events (used by the reminder scheduler) in
-  // sync whenever events change, so server-side push reminders fire even
-  // when this tab/app is closed.
+  // Two-way sync: push this device's events/colors to the backend whenever
+  // they change, so both the reminder scheduler and any other linked
+  // device see the update. Skipped once right after a pull just wrote
+  // these same values in, to avoid an immediate redundant round-trip.
   useEffect(() => {
-    if (loaded && notifPermission === "granted") {
-      syncEventsToBackend(deviceIdRef.current, events);
+    if (!loaded || !account) return;
+    if (skipNextPushRef.current) { skipNextPushRef.current = false; return; }
+    pushAccountData(account.accountId, deviceIdRef.current, events, colors);
+  }, [events, colors, loaded, account]);
+
+  // Re-pull whenever the app regains focus (e.g. switching back from
+  // another app, or waking the laptop) so changes made on another linked
+  // device show up here without needing a full reload.
+  useEffect(() => {
+    if (!account) return;
+    const onVisible = async () => {
+      if (document.visibilityState !== "visible") return;
+      const remote = await pullAccountData(account.accountId);
+      if (remote) {
+        skipNextPushRef.current = true;
+        setEvents(remote.events);
+        setColors(remote.colors.length ? remote.colors : PRESET_COLORS);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [account]);
+
+  const handleJoinAccount = async (code) => {
+    const acct = await joinAccountByCode(code);
+    const remote = await pullAccountData(acct.accountId);
+    skipNextPushRef.current = true;
+    setEvents(remote?.events || []);
+    setColors(remote?.colors?.length ? remote.colors : PRESET_COLORS);
+    setAccount(acct);
+    setShowSyncSheet(false);
+    if (notifPermission === "granted") {
+      subscribeToPush(deviceIdRef.current, acct.accountId);
     }
-  }, [events, loaded, notifPermission]);
+  };
 
   // Reminder polling (works while app is open in a tab) — this is a
   // foreground-only fallback; background/closed-app reminders are handled
@@ -853,8 +1009,8 @@ export default function CalendarApp() {
     if (typeof Notification === "undefined") return;
     Notification.requestPermission().then((perm) => {
       setNotifPermission(perm);
-      if (perm === "granted") {
-        subscribeToPush(deviceIdRef.current);
+      if (perm === "granted" && account) {
+        subscribeToPush(deviceIdRef.current, account.accountId);
       }
     });
   };
@@ -930,6 +1086,9 @@ export default function CalendarApp() {
             </button>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={() => setShowSyncSheet(true)} title="Sync devices" style={{ background: "none", border: "none", cursor: "pointer" }}>
+              <Smartphone size={16} color={T.textFaint} />
+            </button>
             {notifPermission !== "granted" && notifPermission !== "unsupported" && (
               <button onClick={requestNotifications} title="Enable reminders" style={{ background: "none", border: "none", cursor: "pointer" }}>
                 <Bell size={16} color={T.textFaint} />
@@ -999,6 +1158,13 @@ export default function CalendarApp() {
           color={colors.find((c) => c.id === detailEvent.colorId) || colors[0]}
           onEdit={() => { setEditingEvent(detailEvent); setShowForm(true); }}
           onClose={() => setDetailEvent(null)}
+        />
+      )}
+      {showSyncSheet && account && (
+        <SyncSheet
+          code={account.code}
+          onJoin={handleJoinAccount}
+          onClose={() => setShowSyncSheet(false)}
         />
       )}
     </div>

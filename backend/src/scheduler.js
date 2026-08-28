@@ -1,7 +1,7 @@
 import webpush from "web-push";
 import {
   getAllDevicesWithSubscriptions,
-  getEventsForDevice,
+  getAccountData,
   hasFired,
   markFired,
   removeSubscription,
@@ -27,16 +27,24 @@ function formatTimeRange(start, end) {
   return `${minutesToLabel(timeToMinutes(start))} – ${minutesToLabel(timeToMinutes(end))}`;
 }
 
+// How long past an event's start time we'll still fire a "late" reminder.
+// The free-tier host can spin down between cron ticks (e.g. cold start after
+// idle), which could otherwise cause a reminder to be silently skipped if it
+// fell inside a gap. Extending the fire window past eventStart trades a
+// possibly-late notification for a guaranteed one instead of a missed one.
+const GRACE_PERIOD_MS = 10 * 60000;
+
 // Runs once a minute. For every device with an active push subscription,
 // checks whether any of its events have a reminder whose fire window
-// (eventStart - reminderOffset .. eventStart) contains "now", using the
-// same recurrence + reminder logic as the client's foreground poller.
+// (eventStart - reminderOffset .. eventStart + GRACE_PERIOD_MS) contains
+// "now", using the same recurrence + reminder logic as the client's
+// foreground poller.
 export async function checkReminders() {
   const realNowMs = Date.now();
   const devices = getAllDevicesWithSubscriptions();
 
   for (const device of devices) {
-    const events = getEventsForDevice(device.deviceId);
+    const { events } = getAccountData(device.accountId);
     if (events.length === 0) continue;
 
     // Shift the real UTC clock into this device's local wall-clock space.
@@ -50,14 +58,14 @@ export async function checkReminders() {
         if (!ev.reminder || ev.reminder === "none") continue;
         if (!occursOn(ev, dateKey)) continue;
 
-        const [h, m] = ev.start_time.split(":").map(Number);
+        const [h, m] = ev.startTime.split(":").map(Number);
         const eventStartLocal = fromKey(dateKey);
         eventStartLocal.setUTCHours(h, m, 0, 0);
         // Convert the device-local wall-clock instant back to a real UTC instant.
         const eventStartMs = eventStartLocal.getTime() + device.tzOffsetMinutes * 60000;
         const fireAtMs = eventStartMs - Number(ev.reminder) * 60000;
 
-        if (realNowMs >= fireAtMs && realNowMs < eventStartMs) {
+        if (realNowMs >= fireAtMs && realNowMs < eventStartMs + GRACE_PERIOD_MS) {
           if (hasFired(device.deviceId, ev.id, dateKey)) continue;
           await sendReminderPush(device, ev);
           markFired(device.deviceId, ev.id, dateKey);
@@ -74,7 +82,7 @@ async function sendReminderPush(device, ev) {
   };
   const payload = JSON.stringify({
     title: ev.title || "Untitled event",
-    body: `${formatTimeRange(ev.start_time, ev.end_time)}${ev.notes ? " — " + truncate(ev.notes, 60) : ""}`,
+    body: `${formatTimeRange(ev.startTime, ev.endTime)}${ev.notes ? " — " + truncate(ev.notes, 60) : ""}`,
     tag: `event-${ev.id}`,
     url: "/",
   });
