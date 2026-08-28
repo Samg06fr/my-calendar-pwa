@@ -1,0 +1,24 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+npm-debug.log*
+
+# env / secrets
+.env
+.env.local
+.env.*.local
+!frontend/.env.development
+!*.env.example
+
+# backend runtime data
+backend/data/
+backend/*.db
+backend/*.db-journal
+backend/*.db-wal
+backend/*.db-shm
+
+# local sandbox tooling (not needed once Node is on your PATH normally)
+.claude/
+frontend/dev.sh
+
