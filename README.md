@@ -24,6 +24,31 @@ Once notifications are enabled, reminders you set on events will arrive as
 push notifications even if the app is closed — a server checks every minute
 and sends them at the right time.
 
+## Syncing between your phone and computer
+
+Tap the phone icon in the top bar to open **Sync devices**. Each install
+gets its own 6-character code automatically; entering that same code on
+another device links it to the same calendar (replacing that device's
+local events with the shared ones). From then on, changes made on either
+device show up on the other next time it's opened or brought to the
+foreground.
+
+## Keeping reminders reliable (recommended one-time setup)
+
+Render's free tier spins the backend down after 15 minutes idle, which
+would pause the reminder cron until something wakes it back up. To prevent
+that, set up a free uptime pinger to hit the backend every 5–10 minutes:
+
+1. Go to https://cron-job.org and create a free account
+2. Create a new cronjob:
+   - URL: `https://my-calendar-backend-clfn.onrender.com/api/health`
+   - Schedule: every 10 minutes
+3. Save it
+
+This keeps the backend warm so reminders fire on schedule. For an
+even stronger guarantee (zero spin-down, not just "very unlikely"), you can
+instead upgrade the Render web service to a paid Starter plan.
+
 ## Project layout
 
 ```
@@ -52,14 +77,18 @@ npm start
 ```
 Runs at http://localhost:4000.
 
-## How reminders work
+## How it works
 
-1. The frontend stores events in IndexedDB (on-device, offline-capable).
-2. Whenever notifications are enabled and events change, the frontend syncs
-   a copy of the events (plus the device's timezone offset) to the backend.
+1. The frontend stores events in IndexedDB (on-device, offline-capable) and
+   mirrors them to the backend under an "account" (identified by the sync
+   code), independent of notification permission.
+2. On load and whenever the app regains focus, it pulls the account's
+   latest events from the backend, so changes from another linked device
+   show up here.
 3. A cron job on the backend checks every minute whether any event's
    reminder window has been entered, using the same recurrence + offset
-   logic as the UI, and sends a Web Push notification via VAPID.
+   logic as the UI, and sends a Web Push notification via VAPID to every
+   device linked to that account.
 4. The service worker (`frontend/public/sw.js`) receives the push and shows
    the notification, even if the tab/app is closed.
 
