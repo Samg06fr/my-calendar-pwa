@@ -10,6 +10,7 @@ import {
   upsertDevice,
   upsertSubscription,
   getAllDevicesWithSubscriptions,
+  getDevicesForAccount,
   upsertAccountData,
   getAccountData,
 } from "./db.js";
@@ -83,22 +84,33 @@ app.post("/api/sync", (req, res) => {
   res.json({ ok: true });
 });
 
-// Manual trigger for end-to-end testing: sends an immediate test push to a device.
+// Manual trigger for end-to-end testing: sends an immediate test push to a
+// device (by deviceId) or to every device linked to an account (by
+// accountId + sync code, resolved client-side via /api/account/join first).
 app.post("/api/test-notification", async (req, res) => {
-  const { deviceId } = req.body || {};
-  const devices = getAllDevicesWithSubscriptions();
-  const device = devices.find((d) => d.deviceId === deviceId);
-  if (!device) return res.status(404).json({ error: "No active subscription for this deviceId" });
+  const { deviceId, accountId } = req.body || {};
 
-  try {
-    await webpush.sendNotification(
-      { endpoint: device.endpoint, keys: { p256dh: device.p256dh, auth: device.auth } },
-      JSON.stringify({ title: "Test notification", body: "Push notifications are working.", url: "/" })
-    );
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  let targets = [];
+  if (accountId) {
+    targets = getDevicesForAccount(accountId);
+  } else if (deviceId) {
+    const devices = getAllDevicesWithSubscriptions();
+    const device = devices.find((d) => d.deviceId === deviceId);
+    if (device) targets = [device];
   }
+  if (targets.length === 0) return res.status(404).json({ error: "No active subscription found" });
+
+  const results = await Promise.allSettled(
+    targets.map((device) =>
+      webpush.sendNotification(
+        { endpoint: device.endpoint, keys: { p256dh: device.p256dh, auth: device.auth } },
+        JSON.stringify({ title: "Test notification", body: "Push notifications are working.", url: "/" })
+      )
+    )
+  );
+
+  const sent = results.filter((r) => r.status === "fulfilled").length;
+  res.json({ ok: sent > 0, sent, total: targets.length });
 });
 
 const port = Number(PORT) || 4000;

@@ -124,6 +124,15 @@ export function getAllDevicesWithSubscriptions() {
   `).all();
 }
 
+export function getDevicesForAccount(accountId) {
+  return db.prepare(`
+    SELECT d.device_id AS deviceId, s.endpoint, s.p256dh, s.auth
+    FROM devices d
+    JOIN subscriptions s ON s.device_id = d.device_id
+    WHERE d.account_id = ?
+  `).all(accountId);
+}
+
 export function hasFired(deviceId, eventId, dateKey) {
   return !!db.prepare(
     `SELECT 1 FROM fired_reminders WHERE device_id = ? AND event_id = ? AND date_key = ?`
