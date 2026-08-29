@@ -15,6 +15,16 @@ function saveLocalAccount(accountId, code) {
   localStorage.setItem(SYNC_CODE_KEY, code);
 }
 
+// If the backend had to self-heal this accountId (e.g. its accounts-table
+// row was lost to a database reset and got recreated under the same id),
+// it comes back with a fresh code. Keep localStorage in sync so the Sync
+// sheet always shows a code that actually resolves.
+export function reconcileCode(accountId, code) {
+  if (code && code !== localStorage.getItem(SYNC_CODE_KEY)) {
+    saveLocalAccount(accountId, code);
+  }
+}
+
 // Ensures this device has a sync account. If one isn't linked locally yet,
 // silently creates a fresh (empty) one on the backend so multi-device sync
 // works with zero required setup — the user only has to do something if
@@ -61,10 +71,13 @@ export async function pullAccountData(accountId) {
   }
 }
 
+// Returns the account's current code (which may differ from what was
+// passed in, if the backend had to self-heal a stale accountId), or null
+// if the push failed (offline / backend unreachable).
 export async function pushAccountData(accountId, deviceId, events, colors) {
-  if (!API_BASE) return;
+  if (!API_BASE) return null;
   try {
-    await fetch(`${API_BASE}/api/sync`, {
+    const res = await fetch(`${API_BASE}/api/sync`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -75,7 +88,11 @@ export async function pushAccountData(accountId, deviceId, events, colors) {
         colors,
       }),
     });
+    if (!res.ok) return null;
+    const { code } = await res.json();
+    reconcileCode(accountId, code);
+    return code;
   } catch (e) {
-    /* offline — will push again next time events change or app reloads */
+    return null; // offline — will push again next time events change or app reloads
   }
 }

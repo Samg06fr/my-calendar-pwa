@@ -944,7 +944,12 @@ export default function CalendarApp() {
   useEffect(() => {
     if (!loaded || !account) return;
     if (skipNextPushRef.current) { skipNextPushRef.current = false; return; }
-    pushAccountData(account.accountId, deviceIdRef.current, events, colors);
+    pushAccountData(account.accountId, deviceIdRef.current, events, colors).then((code) => {
+      // The backend self-heals a stale accountId (e.g. after a database
+      // reset) by re-creating it with a fresh code — reflect that in the
+      // Sync sheet so the code shown always actually resolves.
+      if (code && code !== account.code) setAccount((prev) => (prev ? { ...prev, code } : prev));
+    });
   }, [events, colors, loaded, account]);
 
   // Re-pull whenever the app regains focus (e.g. switching back from

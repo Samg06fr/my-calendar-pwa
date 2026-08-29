@@ -81,6 +81,29 @@ export function accountExists(accountId) {
   return !!db.prepare(`SELECT 1 FROM accounts WHERE id = ?`).get(accountId);
 }
 
+export function getAccountById(accountId) {
+  return db.prepare(`SELECT * FROM accounts WHERE id = ?`).get(accountId);
+}
+
+// Self-heals a stale/orphaned accountId — e.g. a device that had an
+// accountId cached locally from before the (non-persistent, free-tier)
+// database was reset. Rather than forcing the device to start over with a
+// brand-new id (which would orphan whatever it just pushed), re-create the
+// accounts-table row under the SAME id with a freshly generated code, so
+// existing devices/data referencing that id stay linked. Returns the
+// account's current (possibly newly generated) code either way.
+export function ensureAccountRow(accountId) {
+  const existing = getAccountById(accountId);
+  if (existing) return existing.code;
+
+  let code;
+  do {
+    code = generateCode();
+  } while (getAccountByCode(code));
+  db.prepare(`INSERT INTO accounts (id, code, created_at) VALUES (?, ?, datetime('now'))`).run(accountId, code);
+  return code;
+}
+
 export function upsertDevice(deviceId, accountId, tzOffsetMinutes) {
   db.prepare(
     `INSERT INTO devices (device_id, account_id, tz_offset_minutes, updated_at)

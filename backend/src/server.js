@@ -6,7 +6,7 @@ import cron from "node-cron";
 import {
   createAccount,
   getAccountByCode,
-  accountExists,
+  ensureAccountRow,
   upsertDevice,
   upsertSubscription,
   getAllDevicesWithSubscriptions,
@@ -55,9 +55,11 @@ app.post("/api/account/join", (req, res) => {
 });
 
 app.get("/api/account/:accountId/data", (req, res) => {
-  const { accountId } = req.params;
-  if (!accountExists(accountId)) return res.status(404).json({ error: "Unknown accountId" });
-  res.json(getAccountData(accountId));
+  // No existence check: an unknown accountId (e.g. a device's locally
+  // cached id from before a database reset) just gets empty defaults back,
+  // rather than erroring — the account row self-heals on the next
+  // subscribe/sync call from that device (see ensureAccountRow).
+  res.json(getAccountData(req.params.accountId));
 });
 
 app.post("/api/subscribe", (req, res) => {
@@ -65,9 +67,10 @@ app.post("/api/subscribe", (req, res) => {
   if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth || !deviceId || !accountId) {
     return res.status(400).json({ error: "subscription, deviceId, and accountId are required" });
   }
+  const code = ensureAccountRow(accountId);
   upsertDevice(deviceId, accountId, tzOffsetMinutes);
   upsertSubscription(deviceId, subscription);
-  res.json({ ok: true });
+  res.json({ ok: true, accountId, code });
 });
 
 // Two-way sync: this device pushes its current events/colors up (becoming
@@ -79,9 +82,10 @@ app.post("/api/sync", (req, res) => {
   if (!deviceId || !accountId || !Array.isArray(events) || !Array.isArray(colors)) {
     return res.status(400).json({ error: "deviceId, accountId, events[], and colors[] are required" });
   }
+  const code = ensureAccountRow(accountId);
   upsertDevice(deviceId, accountId, tzOffsetMinutes);
   upsertAccountData(accountId, events, colors);
-  res.json({ ok: true });
+  res.json({ ok: true, accountId, code });
 });
 
 // Manual trigger for end-to-end testing: sends an immediate test push to a

@@ -1,3 +1,5 @@
+import { reconcileCode } from "./sync";
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
 function urlBase64ToUint8Array(base64String) {
@@ -40,7 +42,7 @@ export async function subscribeToPush(deviceId, accountId) {
 
 async function sendSubscription(subscription, deviceId, accountId) {
   try {
-    await fetch(`${API_BASE}/api/subscribe`, {
+    const res = await fetch(`${API_BASE}/api/subscribe`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -50,6 +52,10 @@ async function sendSubscription(subscription, deviceId, accountId) {
         tzOffsetMinutes: new Date().getTimezoneOffset(),
       }),
     });
+    if (res.ok) {
+      const { code } = await res.json();
+      reconcileCode(accountId, code);
+    }
   } catch (e) {
     /* offline / backend unreachable — subscription stays local, will retry next load */
   }
