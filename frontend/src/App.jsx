@@ -548,7 +548,7 @@ function EventForm({ initial, colors, onSave, onDelete, onCancel }) {
       <div style={{ minHeight: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
       <div style={{
         background: T.surface, width: "100%", maxWidth: 480,
-        borderRadius: "18px 18px 0 0", padding: "18px 18px 28px", border: `1px solid ${T.border}`, borderBottom: "none",
+        borderRadius: "18px 18px 0 0", padding: "18px 18px calc(28px + env(safe-area-inset-bottom))", border: `1px solid ${T.border}`, borderBottom: "none",
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
           <span style={{ color: T.text, fontSize: 17, fontWeight: 700, fontFamily: "Georgia, serif" }}>
@@ -723,7 +723,7 @@ function EventDetail({ event, color, onEdit, onClose }) {
       <div style={{ minHeight: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: T.surface, width: "100%", maxWidth: 480, borderRadius: "18px 18px 0 0", padding: 20, border: `1px solid ${T.border}`, borderBottom: "none" }}
+        style={{ background: T.surface, width: "100%", maxWidth: 480, borderRadius: "18px 18px 0 0", padding: "20px 20px calc(20px + env(safe-area-inset-bottom))", border: `1px solid ${T.border}`, borderBottom: "none" }}
       >
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer" }}>
@@ -810,7 +810,7 @@ function SyncSheet({ code, onJoin, onClose }) {
       <div style={{ minHeight: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: T.surface, width: "100%", maxWidth: 480, borderRadius: "18px 18px 0 0", padding: 20, border: `1px solid ${T.border}`, borderBottom: "none" }}
+        style={{ background: T.surface, width: "100%", maxWidth: 480, borderRadius: "18px 18px 0 0", padding: "20px 20px calc(20px + env(safe-area-inset-bottom))", border: `1px solid ${T.border}`, borderBottom: "none" }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
           <span style={{ color: T.text, fontSize: 17, fontWeight: 700, fontFamily: "Georgia, serif" }}>Sync devices</span>
@@ -1068,11 +1068,17 @@ export default function CalendarApp() {
   }
 
   return (
-    <div style={{ height: "100%", minHeight: 640, background: T.bg, display: "flex", flexDirection: "column", fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", position: "relative", overflow: "hidden" }}>
+    <div style={{
+      height: "100%", minHeight: 640, background: T.bg, display: "flex", flexDirection: "column",
+      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif", position: "relative", overflow: "hidden",
+      paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)",
+    }}>
       <style>{`.no-scrollbar::-webkit-scrollbar{display:none} input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.7)} input[type="time"]::-webkit-calendar-picker-indicator{filter:invert(0.7)}`}</style>
 
-      {/* Header */}
-      <div style={{ padding: "16px 16px 10px", borderBottom: `1px solid ${T.border}` }}>
+      {/* Header — top padding accounts for the iOS status bar / notch when
+          running as an installed standalone app (env(safe-area-inset-top)
+          is 0 in a normal browser tab, so this is a no-op there). */}
+      <div style={{ padding: "16px 16px 10px", paddingTop: "max(16px, env(safe-area-inset-top))", borderBottom: `1px solid ${T.border}` }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <button onClick={goPrev} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}>
@@ -1132,7 +1138,7 @@ export default function CalendarApp() {
         onClick={() => { setEditingEvent(null); setShowForm(true); }}
         aria-label="Add event"
         style={{
-          position: "fixed", right: 18, bottom: 22,
+          position: "fixed", right: "calc(18px + env(safe-area-inset-right))", bottom: "calc(22px + env(safe-area-inset-bottom))",
           width: "clamp(46px, 8vw, 60px)", height: "clamp(46px, 8vw, 60px)",
           borderRadius: 999, background: T.accent, border: "none", cursor: "pointer",
           display: "flex", alignItems: "center", justifyContent: "center",
